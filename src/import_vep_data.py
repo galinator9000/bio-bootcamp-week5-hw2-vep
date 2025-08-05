@@ -16,11 +16,11 @@ def iterative_file_reader(file_path):
 def transcript_selection(a, b):
     def calculate_score(x):
         return sum([
-            16 if x["canonical"] == "1" else 0,
-            8 if x["impact"] == "HIGH" else 0,
-            4 if x["impact"] == "MODERATE" else 0,
-            2 if x["impact"] == "LOW" else 0,
-            1 if x["impact"] == "MODIFIER" else 0,
+            16 if "canonical" in x and x["canonical"] == "1" else 0,
+            8 if "impact" in x and x["impact"] == "HIGH" else 0,
+            4 if "impact" in x and x["impact"] == "MODERATE" else 0,
+            2 if "impact" in x and x["impact"] == "LOW" else 0,
+            1 if "impact" in x and x["impact"] == "MODIFIER" else 0,
         ])
 
     return calculate_score(b)- calculate_score(a)
@@ -43,12 +43,18 @@ def parse_and_insert_vep_data(vep_data_folder_path="data"):
 
             line_count = 0
             for variant_raw_line in iterative_file_reader(data_path):
-                # Break line for testing
-                if line_count >= 100:
+                if line_count % 10000 == 0:
+                    session.commit()
+
+                # TODO: Remove later on, intended for testing
+                if line_count >= 5000:
                     break
+
                 line_count += 1
                 variant = json.loads(variant_raw_line)
-                print(variant)
+
+                if "transcript_consequences" not in variant:
+                    continue
 
                 # Parse VCF input part
                 vinp = variant["input"].split("\t")
@@ -114,7 +120,7 @@ def parse_and_insert_vep_data(vep_data_folder_path="data"):
                 )
                 session.add(variant_call)
                 
-                print(f"Processed variant: {chrom}:{pos} {ref}>{alt} in gene {gene_symbol} (impact: {worst_trx.get('impact')})")
+                print(f"Processed variant (line: {line_count}): {chrom}:{pos} {ref}>{alt} in gene {gene_symbol} (impact: {worst_trx.get('impact')})")
 
     except Exception as e:
         session.rollback()
