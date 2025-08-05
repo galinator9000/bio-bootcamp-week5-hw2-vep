@@ -1,8 +1,7 @@
 import os
 import json
 from functools import cmp_to_key
-#from sqlalchemy.exc import IntegrityError
-#from src.database import create_tables, Session
+from src.database import create_tables, Session, Gene, Variant, VariantCall
 
 def iterative_file_reader(file_path):
     try:
@@ -28,7 +27,7 @@ def transcript_selection(a, b):
 
 def parse_and_insert_vep_data(vep_data_folder_path="data"):
     print("Starting VEP data import...")
-    #session = Session()
+    session = Session()
 
     try:
         # Path to the downloaded JSON file(s)
@@ -40,13 +39,13 @@ def parse_and_insert_vep_data(vep_data_folder_path="data"):
         for vep_data_file in vep_data_files:
             data_path = os.path.join(vep_data_folder_path, vep_data_file)
 
-            sample_name = data_path.replace(".json", "")
+            sample_name = vep_data_file.replace(".json", "").split("_")[0]
 
             line_count = 0
             for variant_raw_line in iterative_file_reader(data_path):
-                if line_count >= 1:
+                # Break line for testing
+                if line_count >= 100:
                     break
-
                 line_count += 1
                 variant = json.loads(variant_raw_line)
                 print(variant)
@@ -67,18 +66,65 @@ def parse_and_insert_vep_data(vep_data_folder_path="data"):
                 vtrxs = variant["transcript_consequences"]
                 worst_trx = sorted(vtrxs, key=cmp_to_key(transcript_selection))[0]
 
-                ### INSERTION IMPLEMENTATION GOES HERE
+                # Extract gene information from worst transcript
+                gene_symbol = worst_trx.get("gene_symbol")
+                gene_biotype = worst_trx.get("biotype")  # May not be present in all cases
+                
+                # Extract rs_id if present in the variant
+                rs_id = None
+                if "colocated_variants" in variant:
+                    for colocated in variant["colocated_variants"]:
+                        if colocated.get("id", "").startswith("rs"):
+                            rs_id = colocated["id"]
+                            break
+                
+                # Create or get Gene
+                gene = None
+                if gene_symbol:
+                    gene = session.query(Gene).filter_by(symbol=gene_symbol).first()
+                    if not gene:
+                        gene = Gene(
+                            symbol=gene_symbol,
+                            biotype=gene_biotype
+                        )
+                        session.add(gene)
+                        session.flush()  # To get the gene_id
+                
+                # Create Variant
+                variant_obj = Variant(
+                    chrom=chrom,
+                    pos=int(pos),
+                    ref=ref,
+                    alt=alt,
+                    rs_id=rs_id,
+                    impact=worst_trx.get("impact"),
+                    gene_id=gene.gene_id if gene else None
+                )
+                session.add(variant_obj)
+                session.flush()  # To get the variant_id
+                
+                # Create VariantCall
+                genotype = vcf_inp.get("GT")
+                depth = vcf_inp.get("DP")
+                variant_call = VariantCall(
+                    sample_name=sample_name,
+                    genotype=genotype,
+                    depth=depth,
+                    variant_id=variant_obj.variant_id
+                )
+                session.add(variant_call)
+                
+                print(f"Processed variant: {chrom}:{pos} {ref}>{alt} in gene {gene_symbol} (impact: {worst_trx.get('impact')})")
 
-        
     except Exception as e:
-        #session.rollback()
+        session.rollback()
         print(f"An error occurred: {e}")
     finally:
         # Final commit and close the session
-        #session.commit()
-        #session.close()
+        session.commit()
+        session.close()
         print("Data import finished.")
 
 if __name__ == "__main__":
-    # create_tables()
-    parse_and_insert_vep_data("data")
+    create_tables()
+    parse_and_insert_vep_data("/data")
