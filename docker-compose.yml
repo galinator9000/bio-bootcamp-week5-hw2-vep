@@ -29,4 +29,4 @@ services:
     volumes:
       - .:/app
     # Override the CMD from the Dockerfile to run our script
-    command: ["python", "scripts/import_vep_data.py"]
+    command: ["python", "src/import_vep_data.py"]
